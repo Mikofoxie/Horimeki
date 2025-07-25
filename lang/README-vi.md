@@ -1,5 +1,6 @@
 # Horimeki (ホリメキ)
-Horimeki là selfbot giúp bạn có thể treo/giữ voice 24/7.
+Horimeki là selfbot giúp bạn có thể treo/giữ voice 24/7.\
+*Đọc bản tiếng Anh [ở đây](/README.md)*
 
 ## Disclaimer
 - **Tôi không chịu trách nhiệm cho bất kỳ thiệt hại nào gây ra, cụ thể là việc tài khoản của bạn *có thể sẽ bị cấm* khi sử dụng cái này.**
