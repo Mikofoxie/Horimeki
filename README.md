@@ -1,5 +1,5 @@
 # Horimeki (ホリメキ)
-Horimeki is a selfbot designed to help you stay in a voice channel 24/7.
+Horimeki is a selfbot designed to help you stay in a voice channel 24/7.\
 Read this in [Vietnamese](/README-vi.md)
 
 ## Disclaimer
