@@ -12,7 +12,7 @@ Horimeki là selfbot giúp bạn có thể treo/giữ voice 24/7.
 ## Cài đặt
 
 ```bash
-git clone 
+git clone https://github.com/Horizuki/Horimeki
 cd Horimeki
 npm install
 ```
