@@ -1,15 +1,16 @@
 # Horimeki (ホリメキ)
-Horimeki là selfbot giúp bạn có thể treo/giữ voice 24/7.
+Horimeki is a selfbot designed to help you stay in a voice channel 24/7.\
+*Read this in [Vietnamese](/lang/README-vi.md)*
 
 ## Disclaimer
-- **Tôi không chịu trách nhiệm cho bất kỳ thiệt hại nào gây ra, cụ thể là việc tài khoản của bạn *có thể sẽ bị xoá* khi sử dụng cái này.**
-- **Sử dụng cái này bằng tài khoản người dùng là hoàn toàn bị cấm bởi [Điều khoản dịch vụ của Discord](https://discord.com/terms).**
-- **Repo này không có liên kết, hay được ủy quyền, duy trì, tài trợ hoặc chứng thực bởi [Discord Inc.](https://discord.com/) hoặc bất kỳ chi nhánh hoặc công ty con nào của nó.**
+- **I'm not responsible for any consequences from the use of this code, specifically your account *could be terminated* while using it.**
+- **Using this script is against [Discord's Terms of Service](https://discord.com/terms) and [Community Guidelines](https://discord.com/terms).**
+- **This repository is not affiliated with, authorized, maintained, sponsored or endorsed by [Discord Inc.](https://discord.com/) or any of its affiliates or subsidiaries.**
 
-## Yêu cầu
-> **Cần Node.js 20.18.0 hoặc phiên bản mới hơn để sử dụng.**
+## Requirement
+> **Node.js 20.18.0 or above.**
 
-## Cài đặt
+## Installation
 
 ```bash
 git clone https://github.com/Horizuki/Horimeki
@@ -17,7 +18,7 @@ cd Horimeki
 npm install
 ```
 
-## Chạy
+## Run
 
 ```bash
 node index.js
