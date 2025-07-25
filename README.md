@@ -1,6 +1,6 @@
 # Horimeki (ホリメキ)
 Horimeki is a selfbot designed to help you stay in a voice channel 24/7.
-- Read this in [Vietnamese](/README-vi.md)
+Read this in [Vietnamese](/README-vi.md)
 
 ## Disclaimer
 - **I'm not responsible for any consequences from the use of this code, specifically your account *could be terminated* while using it.**
