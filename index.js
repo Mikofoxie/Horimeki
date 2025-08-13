@@ -38,7 +38,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const q = (prompt, { mask = false } = {}) =>
   new Promise((res) => {
     rl.question(prompt, (ans) => {
-      if (mask) { stdoutMuted = false; process.stdout.write('\n'); }
+      if (mask) { process.stdout.write('\n'); }
       res(ans);
     });
   });
@@ -129,7 +129,7 @@ async function joinVC(guildId, channelId) {
     clearReconnect();
     reconnectGen++;
 
-    // destroy kết nối cũ nếu có
+    // Destroy kết nối cũ nếu có
     if (connection) { try { connection.removeAllListeners(); connection.destroy(); } catch {} connection = null; }
 
     connection = joinVoiceChannel({
@@ -240,22 +240,30 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   }
 });
 
-async function prompt() {
+
+async function commandLoop() {
   const cmd = (await q('\nNhập lệnh (join/leave/exit): ')).trim().toLowerCase();
-  if (cmd === 'join') {
-    const g = (await q('Nhập GUILD ID: ')).trim();
-    const c = (await q('Nhập VOICE CHANNEL ID: ')).trim();
-    joinVC(g, c);
-    return prompt();
-  } else if (cmd === 'leave') {
-    leaveVC();
-    return prompt();
-  } else if (cmd === 'exit') {
-    log('[×] Đang thoát...');
-    return cleanExit(0);
-  } else {
-    warn('[!] Lệnh không hợp lệ. Chọn: join/leave/exit');
-    return prompt();
+  switch (cmd) {
+    case 'join': {
+      const g = (await q('Nhập GUILD ID: ')).trim();
+      const c = (await q('Nhập VOICE CHANNEL ID: ')).trim();
+      if (g && c) {
+        await joinVC(g, c);
+      } else {
+        warn('[!] GUILD ID và VOICE CHANNEL ID không được để trống.');
+      }
+      break;
+    }
+    case 'leave':
+      leaveVC();
+      break;
+    case 'exit':
+      log('[×] Đang thoát...');
+      cleanExit(0);
+      break; // cleanExit sẽ thoát tiến trình, nên có break
+    default:
+      warn('[!] Lệnh không hợp lệ. Chọn: join/leave/exit');
+      break;
   }
 }
 
@@ -270,19 +278,6 @@ function cleanExit(code = 0) {
 
 process.on('SIGINT', () => { console.log(); warn('[×] Nhận SIGINT, thoát…'); cleanExit(0); });
 
-const loginWithToken = async () => {
-  const token = (await q('\nNhập token Discord của bạn: ')).trim();
-  if (!token) {
-    warn('Token không được để trống!');
-    return loginWithToken();
-  }
-  client.login(token).catch(e => {
-    console.error('[!] Lỗi đăng nhập:', e.message);
-    loginWithToken();
-  });
-}
-
-// Đọc token từ file 
 function loadTokenFromFile() {
   const configPath = path.join(process.cwd(), 'config.json');
   
@@ -308,40 +303,57 @@ function saveTokenToFile(token) {
   }
 }
 
-// Maincord
-console.log('Horimeki - Version 3.6');
-console.log('-----------------------------------------');
-
-// Kiểm tra xem có token trong file config không
-const savedToken = loadTokenFromFile();
-
-if (savedToken) {
-  rl.question('Phát hiện token đã lưu. Bạn có muốn sử dụng? (y/n): ', (answer) => {
-    if (answer.toLowerCase() === 'y') {
-      console.log('[↻] Đang đăng nhập bằng token đã lưu...');
-      client.login(savedToken).catch(e => {
-        console.error('[!] Lỗi đăng nhập:', e.message);
-        loginWithToken();
-      });
-    } else {
-      loginWithToken();
-    }
-  });
-} else {
-  loginWithToken();
-}
-
-// Xử lý sự kiện đăng nhập thành công
 client.on('ready', () => {
   console.log(`[✓] Đăng nhập thành công với tài khoản: ${client.user.tag}`);
   console.log(`[✓] ID: ${client.user.id}`);
   console.log('-----------------------------------------');
-  
-  // Hỏi người dùng có muốn lưu token không
-  rl.question('Bạn có muốn lưu token để sử dụng lần sau? (y/n): ', (answer) => {
-    if (answer.toLowerCase() === 'y') {
-      saveTokenToFile(client.token);
-    }
-    prompt();
-  });
 });
+
+// Maincord
+async function main() {
+  console.log('Horimeki - Version 3.6');
+  console.log('-----------------------------------------');
+
+  let tokenToLogin = null;
+  const savedToken = loadTokenFromFile();
+
+  if (savedToken) {
+    const answer = await q('Phát hiện token đã lưu. Bạn có muốn sử dụng? (y/n): ');
+    if (answer.toLowerCase() === 'y') {
+      tokenToLogin = savedToken;
+    }
+  }
+
+  
+  while (!client.token) {
+    try {
+      if (!tokenToLogin) {
+        tokenToLogin = await q('\nNhập token Discord của bạn: ');
+        if (!tokenToLogin) {
+          warn('Token không được để trống!');
+          continue;
+        }
+      }
+      log('[↻] Đang đăng nhập...');
+      await client.login(tokenToLogin);
+    } catch (e) {
+      err(`[!] Lỗi đăng nhập: ${e.message}`);
+      warn('[!] Vui lòng thử lại với token khác.');
+      tokenToLogin = null;
+    }
+  }
+
+
+  if (!savedToken || savedToken !== client.token) {
+      const saveAnswer = await q('Bạn có muốn lưu token này để sử dụng lần sau? (y/n): ');
+      if (saveAnswer.toLowerCase() === 'y') {
+          saveTokenToFile(client.token);
+      }
+  }
+  
+  while (true) {
+    await commandLoop();
+  }
+}
+
+main();
