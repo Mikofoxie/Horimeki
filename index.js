@@ -63,7 +63,15 @@ function stopReconnectPermanently(reason, note) {
 
 
 function isVoiceLike(ch) {
-  return ch?.type === 2 || ch?.type === 13 || ch?.isVoice?.() === true;
+  return (
+    //  discord.js v13
+    ch?.type === 2 || ch?.type === 13 ||
+
+    // discord.js v14
+    ch?.type === 'GUILD_VOICE' || ch?.type === 'GUILD_STAGE_VOICE' || 
+    
+    ch?.isVoice?.() === true
+  );
 }
 
 function canViewAndConnect(ch) {
