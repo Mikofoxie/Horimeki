@@ -58,13 +58,13 @@ const client = new Discord.Client({
             case 'ThreadManager':
                 return new LimitedCollection({ maxSize: 0 });
             
-            // Trường hợp mặc định cho các manager khác: tắt cache
+            // Case mặc định cho các manager khác: tắt cache
             default:
                 return new LimitedCollection({ maxSize: 0 });
         }
     },
 
-    // Định kỳ quét cache để xóa các mục đã cũ
+    // Định kỳ quét cache
     sweepers: {
         threads: { interval: 3600, lifetime: 1800 },
         messages: { interval: 3600, lifetime: 1800 }
@@ -137,7 +137,7 @@ function canViewAndConnect(ch) {
 }
 
 /**
- * Cố gắng kết nối lại vào kênh thoại mục tiêu với độ trễ tăng dần
+ * Reconnect
  * @param {string} source Nguồn gọi hàm (để debug)
  */
 function attemptReconnect(source = 'unknown') {
