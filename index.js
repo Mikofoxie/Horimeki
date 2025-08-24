@@ -1,6 +1,6 @@
 // =======================================================================
 // ===                    HORIMEKI - STAY VOICE BOT                    ===
-// ===                PHIÊN BẢN 3.7 (Seamless Reconnect)               ===
+// ===                           PHIÊN BẢN 3.6                         ===
 // =======================================================================
 
 const Discord = require('discord.js-selfbot-v13');
@@ -94,6 +94,9 @@ let lastReadyAt = 0;
 let stickyTimer = null;
 let lastStickyPullAt = 0;
 
+
+let isJoining = false;
+
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 
@@ -147,7 +150,8 @@ function attemptReconnect(source = 'unknown') {
     return;
   }
   if (!targetGuildId || !targetChannelId) return;
-  if (reconnecting) return;
+  // THAY ĐỔI: Kiểm tra cờ khóa isJoining
+  if (reconnecting || isJoining) return;
 
   if (reconnectAttempts >= MAX_RECONNECT) {
     log.warn(`Dừng thử kết nối sau ${MAX_RECONNECT} lần`);
@@ -181,20 +185,18 @@ function attemptReconnect(source = 'unknown') {
 
 async function delayedLeave(delayMs = 2000) {
     if (!connection) return;
-
     log.info(`Sẽ ngắt kết nối voice sau ${delayMs / 1000} giây...`);
+    const connToDestroy = connection;
+    connection = null; // Ngăn các lệnh khác can thiệp
 
     return new Promise(resolve => {
         setTimeout(() => {
-            if (connection) {
-                try {
-                    connection.removeAllListeners();
-                    connection.destroy();
-                    log.success('Đã ngắt kết nối voice.');
-                } catch (e) {
-                    log.error('Lỗi khi phá hủy kết nối:', e.message);
-                }
-                connection = null;
+            try {
+                connToDestroy.removeAllListeners();
+                connToDestroy.destroy();
+                log.success('Đã ngắt kết nối voice.');
+            } catch (e) {
+                log.error('Lỗi khi phá hủy kết nối:', e.message);
             }
             resolve();
         }, delayMs);
@@ -203,8 +205,18 @@ async function delayedLeave(delayMs = 2000) {
 
 
 async function joinVC(guildId, channelId) {
+  if (isJoining) {
+    log.warn('Đang trong quá trình kết nối, bỏ qua yêu cầu tham gia mới.');
+    return;
+  }
+  isJoining = true;
+
   const oldConnection = connection;
   let newConnection = null;
+
+  if (oldConnection) {
+    oldConnection.removeAllListeners();
+  }
 
   try {
     const guild = client.guilds.cache.get(guildId);
@@ -227,10 +239,7 @@ async function joinVC(guildId, channelId) {
     reconnectGen++;
 
     log.reconnect(`Đang thử tham gia kênh mới: ${chalk.bold(ch.name)}...`);
-    if (oldConnection) {
-        log.reconnect('Kết nối cũ sẽ được giữ cho đến khi kết nối mới thành công.');
-    }
-
+    
     newConnection = joinVoiceChannel({
       channelId,
       guildId,
@@ -238,18 +247,15 @@ async function joinVC(guildId, channelId) {
       selfDeaf: true,
       selfMute: true,
     });
-
+    
     connection = newConnection;
-
 
     await entersState(newConnection, VoiceConnectionStatus.Ready, READY_TIMEOUT_MS);
     
-
     log.success(`Kết nối mới thành công: ${chalk.bold(ch.name)}`, `(${channelId})`);
     if (oldConnection && oldConnection !== newConnection) {
         log.reconnect('Dọn dẹp kết nối cũ...');
         try {
-            oldConnection.removeAllListeners();
             oldConnection.destroy();
         } catch (e) {
             log.warn('Lỗi nhỏ khi dọn dẹp kết nối cũ:', e.message);
@@ -260,7 +266,6 @@ async function joinVC(guildId, channelId) {
     clearReconnect();
     lastReadyAt = Date.now();
   
-    // Gắn listener cho kết nối MỚI
     newConnection.on('stateChange', async (oldS, newS) => {
       if (newConnection.state.status === VoiceConnectionStatus.Disconnected) {
         try {
@@ -269,7 +274,7 @@ async function joinVC(guildId, channelId) {
             entersState(newConnection, VoiceConnectionStatus.Connecting, DISCONNECTED_GRACE_MS),
           ]);
         } catch {
-          if (connection === newConnection) {
+          if (connection === newConnection && !isJoining) {
             log.warn('Mất kết nối voice. Đang thử kết nối lại...');
             attemptReconnect('stateChange');
           }
@@ -279,9 +284,11 @@ async function joinVC(guildId, channelId) {
           attemptReconnect('destroyed');
         }
       } else if (newConnection.state.status === VoiceConnectionStatus.Ready) {
-        reconnectAttempts = 0;
-        clearReconnect();
-        lastReadyAt = Date.now();
+        if (connection === newConnection) {
+            reconnectAttempts = 0;
+            clearReconnect();
+            lastReadyAt = Date.now();
+        }
       }
     });
 
@@ -294,22 +301,21 @@ async function joinVC(guildId, channelId) {
 
   } catch (e) {
     log.error(`Lỗi khi tham gia voice: ${e.message}`);
-
     if (newConnection) {
         try { newConnection.destroy(); } catch {}
     }
-    connection = oldConnection;
-
+    
+    connection = null; 
     attemptReconnect('join-error');
+  } finally {
+    isJoining = false;
   }
 }
 
 
 async function leaveVC() {
   stopReconnectPermanently('USER_COMMAND', 'Lệnh leave được gọi');
-  if (connection) {
-      await delayedLeave(10000);
-  }
+  await delayedLeave(5000);
   log.success('Hoàn tất lệnh rời voice channel');
 }
 
@@ -426,10 +432,9 @@ function saveTokenToFile(token) {
 
 async function main() {
   console.log(chalk.cyan('╭───────────────────────────────────────────────────╮'));
-  console.log(chalk.cyan('│') + chalk.bold.magenta('         Horimeki - Stay Voice Bot v3.7          ') + chalk.cyan('│'));
-  console.log(chalk.cyan('│') + chalk.white('              (Seamless Reconnect)                 ') + chalk.cyan('│'));
+  console.log(chalk.cyan('│') + chalk.bold.magenta('            Horimeki - Stay Voice Bot v3.6         ') + chalk.cyan('│'));
+  console.log(chalk.cyan('│') + chalk.white('               (Stable & Optimized)                ') + chalk.cyan('│'));
   console.log(chalk.cyan('╰───────────────────────────────────────────────────╯'));
-
 
   let tokenToLogin = null;
   const savedToken = loadTokenFromFile();
