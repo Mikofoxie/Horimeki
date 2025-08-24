@@ -22,7 +22,7 @@ process.on('uncaughtException', (err, origin) => {
 });
 
 
-const DISCONNECTED_GRACE_MS = 5000;
+const DISCONNECTED_GRACE_MS = 20000;
 const READY_TIMEOUT_MS = 15000;
 
 const STICKY_TARGET = true;
@@ -452,7 +452,7 @@ function saveTokenToFile(token) {
 
 async function main() {
   console.log(chalk.cyan('╭───────────────────────────────────────────────────╮'));
-  console.log(chalk.cyan('│') + chalk.bold.magenta('         Horimeki - Stay Voice Bot v3.6        ') + chalk.cyan('│'));
+  console.log(chalk.cyan('│') + chalk.bold.magenta('         Horimeki - Stay Voice Bot v3.6            ') + chalk.cyan('│'));
   console.log(chalk.cyan('│') + chalk.white('                (Stability Patch)                  ') + chalk.cyan('│'));
   console.log(chalk.cyan('╰───────────────────────────────────────────────────╯'));
 
