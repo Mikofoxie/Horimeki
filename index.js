@@ -30,6 +30,9 @@ const STICKY_DEBOUNCE_MS = 800;
 const STICKY_COOLDOWN_MS = 5000;
 
 
+const OLD_CONNECTION_DESTROY_DELAY_MS = 30000; // 30 giây
+
+
 // =======================================================================
 // ===                         COLORS                                  ===
 // =======================================================================
@@ -197,9 +200,14 @@ async function delayedLeave(delayMs = 2000) {
     return new Promise(resolve => {
         setTimeout(() => {
             try {
-                connToDestroy.removeAllListeners();
-                connToDestroy.destroy();
-                log.success('Đã ngắt kết nối voice.');
+                // Kiểm tra lại nếu nó chưa bị destroy bởi một lý do nào khác
+                if (connToDestroy.state.status !== VoiceConnectionStatus.Destroyed) {
+                    connToDestroy.removeAllListeners();
+                    connToDestroy.destroy();
+                    log.success('Đã ngắt kết nối voice.');
+                } else {
+                    log.info('Kết nối đã bị phá hủy trước đó.');
+                }
             } catch (e) {
                 log.error('Lỗi khi phá hủy kết nối:', e.message);
             }
@@ -222,12 +230,18 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
     reconnectAttempts = 0;
   }
 
-  const oldConnection = connection;
+  // =======================================================================
+  // ===                 THAY ĐỔI MỚI: XỬ LÝ KẾT NỐI CŨ                  ===
+  // =======================================================================
+  const oldConnectionToDestroy = connection; 
   let newConnection = null;
 
-  if (oldConnection) {
-    oldConnection.removeAllListeners();
+  if (oldConnectionToDestroy) {
+    
+    oldConnectionToDestroy.removeAllListeners();
+    log.info('Đã hủy lắng nghe các sự kiện của kết nối cũ.');
   }
+  // =======================================================================
 
   try {
     const guild = client.guilds.cache.get(guildId);
@@ -266,11 +280,31 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
     
     log.success(`Kết nối thành công: ${chalk.bold(ch.name)}`, `(${channelId})`);
 
+
+    if (oldConnectionToDestroy) {
+        log.info(`Kích hoạt delayed destroy cho kết nối cũ sau ${OLD_CONNECTION_DESTROY_DELAY_MS / 1000} giây...`);
+        setTimeout(() => {
+            try {
+                if (oldConnectionToDestroy.state.status !== VoiceConnectionStatus.Destroyed) {
+                    oldConnectionToDestroy.destroy();
+                    log.success('Đã phá hủy kết nối voice cũ sau độ trễ ổn định.');
+                } else {
+                    log.info('Kết nối cũ đã bị phá hủy trước đó bởi một lý do khác.');
+                }
+            } catch (e) {
+                log.error('Lỗi khi phá hủy kết nối cũ:', e.message);
+            }
+        }, OLD_CONNECTION_DESTROY_DELAY_MS);
+    }
+
   
     reconnectAttempts = 0;
+    clearReconnect();
     lastReadyAt = Date.now();
   
     newConnection.on('stateChange', async (oldS, newS) => {
+      if (newConnection !== connection) return;
+
       if (newConnection.state.status === VoiceConnectionStatus.Disconnected) {
         try {
           await Promise.race([
@@ -278,26 +312,25 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
             entersState(newConnection, VoiceConnectionStatus.Connecting, DISCONNECTED_GRACE_MS),
           ]);
         } catch {
-          if (connection === newConnection && !isJoining) {
+          if (!isJoining) {
             log.warn('Mất kết nối voice. Đang thử kết nối lại...');
             attemptReconnect('stateChange');
           }
         }
       } else if (newConnection.state.status === VoiceConnectionStatus.Destroyed) {
-        if (targetGuildId && targetChannelId && !permanentBlockReason && connection === newConnection) {
+        if (targetGuildId && targetChannelId && !permanentBlockReason && !isJoining) {
           attemptReconnect('destroyed');
         }
       } else if (newConnection.state.status === VoiceConnectionStatus.Ready) {
-        if (connection === newConnection) {
-            reconnectAttempts = 0;
-            clearReconnect();
-            lastReadyAt = Date.now();
-        }
+
+        reconnectAttempts = 0;
+        clearReconnect();
+        lastReadyAt = Date.now();
       }
     });
 
     newConnection.on('error', (e) => {
-      if (connection === newConnection) {
+      if (connection === newConnection && !isJoining) {
         log.error('Lỗi kết nối voice:', e.message);
         attemptReconnect('conn-error');
       }
@@ -305,11 +338,12 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
 
   } catch (e) {
     log.error(`Lỗi khi tham gia voice: ${e.message}`);
-    if (newConnection) {
+
+    if (newConnection && newConnection.state.status !== VoiceConnectionStatus.Destroyed) {
         try { newConnection.destroy(); } catch {}
     }
     
-    connection = null; 
+    connection = null;
    
     setTimeout(() => attemptReconnect('join-error'), 0);
 
@@ -351,6 +385,9 @@ client.on('ready', () => {
 client.on('voiceStateUpdate', (oldState, newState) => {
   if (client.user?.id !== newState.id) return;
   if (Date.now() - lastReadyAt < 2000) return;
+
+
+  if (isJoining) return;
 
   if (
     STICKY_TARGET &&
