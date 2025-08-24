@@ -1,6 +1,6 @@
 // =======================================================================
 // ===                    HORIMEKI - STAY VOICE BOT                    ===
-// ===            PHIÊN BẢN 3.6 (Persistent Reconnect)                 ===
+// ===                  PHIÊN BẢN 36 (Stability Patch)                 ===
 // =======================================================================
 
 const Discord = require('discord.js-selfbot-v13');
@@ -9,6 +9,20 @@ const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
+
+// =======================================================================
+// ===                 GLOBAL ERROR HANDLERS                           ===
+// =======================================================================
+process.on('unhandledRejection', (reason, promise) => {
+  console.log(chalk.red.bold('\n[!!!] LỖI CHƯA XỬ LÝ (Unhandled Rejection):'), reason);
+  
+});
+
+process.on('uncaughtException', (err, origin) => {
+  console.log(chalk.red.bold(`\n[!!!] LỖI NGHIÊM TRỌNG (Uncaught Exception): ${err}\n` + `Nguồn gốc lỗi: ${origin}`));
+  // cleanExit(1);
+});
+// =======================================================================
 
 const DISCONNECTED_GRACE_MS = 5000;
 const READY_TIMEOUT_MS = 15000;
@@ -151,8 +165,6 @@ function attemptReconnect(source = 'unknown') {
   if (!targetGuildId || !targetChannelId) return;
   if (reconnecting || isJoining) return;
 
-
-
   reconnecting = true;
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
   reconnectAttempts++;
@@ -174,7 +186,7 @@ function attemptReconnect(source = 'unknown') {
     if (!isVoiceLike(ch)) return stopReconnectPermanently('CHANNEL_NOT_FOUND', '(not voice)');
     if (!canViewAndConnect(ch)) return stopReconnectPermanently('MISSING_PERMISSIONS', ch.name);
 
-    joinVC(targetGuildId, targetChannelId);
+    joinVC(targetGuildId, targetChannelId, false);
   }, delay);
 }
 
@@ -206,7 +218,6 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
   }
   isJoining = true;
 
-
   if (isManualJoin) {
     log.info('Lệnh join thủ công được thực thi, hủy các lịch reconnect và reset bộ đếm.');
     clearReconnect();
@@ -226,11 +237,13 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
     const ch = guild.channels.cache.get(channelId);
     if (!ch) {
       stopReconnectPermanently('CHANNEL_NOT_FOUND', `(ID: ${channelId})`);
+      isJoining = false;
       return;
     }
     if (!isVoiceLike(ch)) throw new Error('Đây không phải kênh thoại');
     if (!canViewAndConnect(ch)) {
       stopReconnectPermanently('MISSING_PERMISSIONS', ch.name);
+      isJoining = false;
       return;
     }
 
@@ -320,6 +333,21 @@ async function leaveVC() {
 }
 
 
+async function cleanExit(code = 0) {
+  log.info('Thực hiện dọn dẹp trước khi thoát...');
+  try { rl.close(); } catch {}
+  clearReconnect();
+  if (stickyTimer) { clearTimeout(stickyTimer); stickyTimer = null; }
+  
+  if (connection) {
+      await delayedLeave(2000);
+  }
+
+  if (client) { try { client.destroy?.(); } catch {} }
+  log.info('Đã thoát.');
+  process.exit(code);
+}
+
 client.on('ready', () => {
     log.success(`Đăng nhập thành công với tài khoản:`, chalk.bold(client.user.tag));
     log.success(`ID:`, chalk.bold(client.user.id));
@@ -351,60 +379,51 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
       log.sticky(`Bị di chuyển sang kênh "${chalk.bold(newState.channel?.name || newState.channelId)}". Đang kéo về...`);
       lastStickyPullAt = Date.now();
-      joinVC(targetGuildId, targetChannelId);
+      joinVC(targetGuildId, targetChannelId, false);
     }, STICKY_DEBOUNCE_MS);
   }
 });
 
 
 async function commandLoop() {
-  const cmd = (await new Promise(res => rl.question(chalk.bold.white('\nNhập lệnh (join/leave/exit) > '), res))).trim().toLowerCase();
-  switch (cmd) {
-    case 'join': {
-      log.info('Nhập thông tin kênh để tham gia:');
-      const guildId = (await q('GUILD ID: ')).trim();
-      const channelId = (await q('VOICE CHANNEL ID: ')).trim();
-      if (guildId && channelId) {
-        await joinVC(guildId, channelId, true);
-      } else {
-        log.warn('GUILD ID và VOICE CHANNEL ID không được để trống');
+  try {
+    const cmd = (await new Promise(res => rl.question(chalk.bold.white('\nNhập lệnh (join/leave/exit) > '), res))).trim().toLowerCase();
+    switch (cmd) {
+      case 'join': {
+        log.info('Nhập thông tin kênh để tham gia:');
+        const guildId = (await q('GUILD ID: ')).trim();
+        const channelId = (await q('VOICE CHANNEL ID: ')).trim();
+        if (guildId && channelId) {
+          await joinVC(guildId, channelId, true);
+        } else {
+          log.warn('GUILD ID và VOICE CHANNEL ID không được để trống');
+        }
+        break;
       }
-      break;
+      case 'leave':
+        await leaveVC();
+        break;
+      case 'exit':
+        log.info('Đang thoát...');
+        await cleanExit(0);
+        return;
+      default:
+        log.warn('Lệnh không hợp lệ. Các lệnh có sẵn:', chalk.bold('join, leave, exit'));
+        break;
     }
-    case 'leave':
-      await leaveVC();
-      break;
-    case 'exit':
-      log.info('Đang thoát...');
-      await cleanExit(0);
+  } catch (error) {
+    if (error.message.includes('closed')) {
       return;
-    default:
-      log.warn('Lệnh không hợp lệ. Các lệnh có sẵn:', chalk.bold('join, leave, exit'));
-      break;
+    }
+    log.error('Lỗi trong vòng lặp lệnh:', error.message);
   }
-}
-
-
-async function cleanExit(code = 0) {
-  try { rl.close(); } catch {}
-  clearReconnect();
-  if (stickyTimer) { clearTimeout(stickyTimer); stickyTimer = null; }
-  
-  if (connection) {
-      await delayedLeave(2000);
-  }
-
-  if (client) { try { client.destroy?.(); } catch {} }
-  process.exit(code);
 }
 
 process.on('SIGINT', async () => {
   console.log();
-  log.warn('Nhận tín hiệu SIGINT, đang thoát...');
+  log.warn('Nhận tín hiệu SIGINT (Ctrl+C), đang thoát...');
   await cleanExit(0);
 });
-
-
 
 const CONFIG_PATH = path.join(process.cwd(), 'config.json');
 
@@ -431,9 +450,9 @@ function saveTokenToFile(token) {
 
 
 async function main() {
- console.log(chalk.cyan('╭───────────────────────────────────────────────────╮'));
-  console.log(chalk.cyan('│') + chalk.bold.magenta('            Horimeki - Stay Voice Bot v3.6         ') + chalk.cyan('│'));
-  console.log(chalk.cyan('│') + chalk.white('               (Stable & Optimized)                ') + chalk.cyan('│'));
+  console.log(chalk.cyan('╭───────────────────────────────────────────────────╮'));
+  console.log(chalk.cyan('│') + chalk.bold.magenta('         Horimeki - Stay Voice Bot v3.6        ') + chalk.cyan('│'));
+  console.log(chalk.cyan('│') + chalk.white('                (Stability Patch)                  ') + chalk.cyan('│'));
   console.log(chalk.cyan('╰───────────────────────────────────────────────────╯'));
 
   let tokenToLogin = null;
@@ -473,6 +492,7 @@ async function main() {
   
   while (true) {
     await commandLoop();
+    if (client.token === null) break;
   }
 }
 
