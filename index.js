@@ -1,6 +1,6 @@
 // =======================================================================
 // ===                    HORIMEKI - STAY VOICE BOT                    ===
-// ===                           PHIÊN BẢN 3.6                         ===
+// ===            PHIÊN BẢN 3.6 (Persistent Reconnect)                 ===
 // =======================================================================
 
 const Discord = require('discord.js-selfbot-v13');
@@ -9,7 +9,7 @@ const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
-const MAX_RECONNECT = 10;
+
 const DISCONNECTED_GRACE_MS = 5000;
 const READY_TIMEOUT_MS = 15000;
 
@@ -94,7 +94,6 @@ let lastReadyAt = 0;
 let stickyTimer = null;
 let lastStickyPullAt = 0;
 
-
 let isJoining = false;
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -150,20 +149,16 @@ function attemptReconnect(source = 'unknown') {
     return;
   }
   if (!targetGuildId || !targetChannelId) return;
-  // THAY ĐỔI: Kiểm tra cờ khóa isJoining
   if (reconnecting || isJoining) return;
 
-  if (reconnectAttempts >= MAX_RECONNECT) {
-    log.warn(`Dừng thử kết nối sau ${MAX_RECONNECT} lần`);
-    return;
-  }
+
 
   reconnecting = true;
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
   reconnectAttempts++;
   const myGen = ++reconnectGen;
 
-  log.reconnect(`Thử kết nối lại lần ${reconnectAttempts}/${MAX_RECONNECT} sau ${Math.round(delay/1000)}s... (src=${source}, gen=${myGen})`);
+  log.reconnect(`Thử kết nối lại lần ${reconnectAttempts} sau ${Math.round(delay/1000)}s... (src=${source}, gen=${myGen})`);
   
   if (reconnectTimer) clearTimeout(reconnectTimer);
 
@@ -187,7 +182,7 @@ async function delayedLeave(delayMs = 2000) {
     if (!connection) return;
     log.info(`Sẽ ngắt kết nối voice sau ${delayMs / 1000} giây...`);
     const connToDestroy = connection;
-    connection = null; // Ngăn các lệnh khác can thiệp
+    connection = null;
 
     return new Promise(resolve => {
         setTimeout(() => {
@@ -204,12 +199,19 @@ async function delayedLeave(delayMs = 2000) {
 }
 
 
-async function joinVC(guildId, channelId) {
+async function joinVC(guildId, channelId, isManualJoin = false) {
   if (isJoining) {
     log.warn('Đang trong quá trình kết nối, bỏ qua yêu cầu tham gia mới.');
     return;
   }
   isJoining = true;
+
+
+  if (isManualJoin) {
+    log.info('Lệnh join thủ công được thực thi, hủy các lịch reconnect và reset bộ đếm.');
+    clearReconnect();
+    reconnectAttempts = 0;
+  }
 
   const oldConnection = connection;
   let newConnection = null;
@@ -235,10 +237,9 @@ async function joinVC(guildId, channelId) {
     targetGuildId = guildId;
     targetChannelId = channelId;
     permanentBlockReason = null;
-    clearReconnect();
     reconnectGen++;
 
-    log.reconnect(`Đang thử tham gia kênh mới: ${chalk.bold(ch.name)}...`);
+    log.reconnect(`Đang thử tham gia kênh: ${chalk.bold(ch.name)}...`);
     
     newConnection = joinVoiceChannel({
       channelId,
@@ -252,7 +253,7 @@ async function joinVC(guildId, channelId) {
 
     await entersState(newConnection, VoiceConnectionStatus.Ready, READY_TIMEOUT_MS);
     
-    log.success(`Kết nối mới thành công: ${chalk.bold(ch.name)}`, `(${channelId})`);
+    log.success(`Kết nối thành công: ${chalk.bold(ch.name)}`, `(${channelId})`);
     if (oldConnection && oldConnection !== newConnection) {
         log.reconnect('Dọn dẹp kết nối cũ...');
         try {
@@ -263,7 +264,6 @@ async function joinVC(guildId, channelId) {
     }
     
     reconnectAttempts = 0;
-    clearReconnect();
     lastReadyAt = Date.now();
   
     newConnection.on('stateChange', async (oldS, newS) => {
@@ -365,7 +365,7 @@ async function commandLoop() {
       const guildId = (await q('GUILD ID: ')).trim();
       const channelId = (await q('VOICE CHANNEL ID: ')).trim();
       if (guildId && channelId) {
-        await joinVC(guildId, channelId);
+        await joinVC(guildId, channelId, true);
       } else {
         log.warn('GUILD ID và VOICE CHANNEL ID không được để trống');
       }
@@ -431,7 +431,7 @@ function saveTokenToFile(token) {
 
 
 async function main() {
-  console.log(chalk.cyan('╭───────────────────────────────────────────────────╮'));
+ console.log(chalk.cyan('╭───────────────────────────────────────────────────╮'));
   console.log(chalk.cyan('│') + chalk.bold.magenta('            Horimeki - Stay Voice Bot v3.6         ') + chalk.cyan('│'));
   console.log(chalk.cyan('│') + chalk.white('               (Stable & Optimized)                ') + chalk.cyan('│'));
   console.log(chalk.cyan('╰───────────────────────────────────────────────────╯'));
