@@ -10,9 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
 
-// =======================================================================
-// ===                 GLOBAL ERROR HANDLERS                           ===
-// =======================================================================
+
 process.on('unhandledRejection', (reason, promise) => {
   console.log(chalk.red.bold('\n[!!!] LỖI CHƯA XỬ LÝ (Unhandled Rejection):'), reason);
   
@@ -22,7 +20,7 @@ process.on('uncaughtException', (err, origin) => {
   console.log(chalk.red.bold(`\n[!!!] LỖI NGHIÊM TRỌNG (Uncaught Exception): ${err}\n` + `Nguồn gốc lỗi: ${origin}`));
   // cleanExit(1);
 });
-// =======================================================================
+
 
 const DISCONNECTED_GRACE_MS = 5000;
 const READY_TIMEOUT_MS = 15000;
@@ -319,7 +317,10 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
     }
     
     connection = null; 
-    attemptReconnect('join-error');
+   
+    setTimeout(() => attemptReconnect('join-error'), 0);
+
+
   } finally {
     isJoining = false;
   }
