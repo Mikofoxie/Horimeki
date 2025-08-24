@@ -61,7 +61,24 @@ class LimitedCollection extends Discord.Collection {
 
 const client = new Discord.Client({
     checkUpdate: false,
-    makeCache: () => new LimitedCollection({ maxSize: 0 }),
+    
+
+    makeCache: manager => {
+        switch (manager.name) {
+            case 'MessageManager':
+            case 'PresenceManager':
+            case 'GuildStickerManager':
+            case 'GuildEmojiManager':
+            case 'GuildScheduledEventManager':
+            case 'StageInstanceManager':
+            case 'ThreadManager':
+                return new LimitedCollection({ maxSize: 0 });
+
+            default:
+                return new Discord.Collection();
+        }
+    },
+
     sweepers: {
         threads: { interval: 3600, lifetime: 1800 },
         messages: { interval: 3600, lifetime: 1800 }
