@@ -1,6 +1,6 @@
 // =======================================================================
 // ===                    HORIMEKI - STAY VOICE BOT                    ===
-// ===                PHIÊN BẢN 3.6 (Stable + Optimized)               ===
+// ===                PHIÊN BẢN 3.7 (Seamless Reconnect)               ===
 // =======================================================================
 
 const Discord = require('discord.js-selfbot-v13');
@@ -179,7 +179,33 @@ function attemptReconnect(source = 'unknown') {
   }, delay);
 }
 
+async function delayedLeave(delayMs = 2000) {
+    if (!connection) return;
+
+    log.info(`Sẽ ngắt kết nối voice sau ${delayMs / 1000} giây...`);
+
+    return new Promise(resolve => {
+        setTimeout(() => {
+            if (connection) {
+                try {
+                    connection.removeAllListeners();
+                    connection.destroy();
+                    log.success('Đã ngắt kết nối voice.');
+                } catch (e) {
+                    log.error('Lỗi khi phá hủy kết nối:', e.message);
+                }
+                connection = null;
+            }
+            resolve();
+        }, delayMs);
+    });
+}
+
+
 async function joinVC(guildId, channelId) {
+  const oldConnection = connection;
+  let newConnection = null;
+
   try {
     const guild = client.guilds.cache.get(guildId);
     if (!guild) throw new Error('Server không tồn tại');
@@ -197,20 +223,15 @@ async function joinVC(guildId, channelId) {
     targetGuildId = guildId;
     targetChannelId = channelId;
     permanentBlockReason = null;
-
     clearReconnect();
     reconnectGen++;
-  
-    if (connection) {
-      try {
-        connection.removeAllListeners();
-        connection.destroy();
-      } catch {}
-      connection = null;
+
+    log.reconnect(`Đang thử tham gia kênh mới: ${chalk.bold(ch.name)}...`);
+    if (oldConnection) {
+        log.reconnect('Kết nối cũ sẽ được giữ cho đến khi kết nối mới thành công.');
     }
 
-    log.reconnect(`Đang tham gia kênh: ${chalk.bold(ch.name)}...`);
-    connection = joinVoiceChannel({
+    newConnection = joinVoiceChannel({
       channelId,
       guildId,
       adapterCreator: guild.voiceAdapterCreator,
@@ -218,57 +239,78 @@ async function joinVC(guildId, channelId) {
       selfMute: true,
     });
 
-    await entersState(connection, VoiceConnectionStatus.Ready, READY_TIMEOUT_MS);
-    log.success(`Đã tham gia thành công: ${chalk.bold(ch.name)}`, `(${channelId})`);
+    connection = newConnection;
+
+
+    await entersState(newConnection, VoiceConnectionStatus.Ready, READY_TIMEOUT_MS);
+    
+
+    log.success(`Kết nối mới thành công: ${chalk.bold(ch.name)}`, `(${channelId})`);
+    if (oldConnection && oldConnection !== newConnection) {
+        log.reconnect('Dọn dẹp kết nối cũ...');
+        try {
+            oldConnection.removeAllListeners();
+            oldConnection.destroy();
+        } catch (e) {
+            log.warn('Lỗi nhỏ khi dọn dẹp kết nối cũ:', e.message);
+        }
+    }
     
     reconnectAttempts = 0;
     clearReconnect();
     lastReadyAt = Date.now();
   
-    connection.on('stateChange', async (oldS, newS) => {
-      if (newS.status === VoiceConnectionStatus.Disconnected) {
+    // Gắn listener cho kết nối MỚI
+    newConnection.on('stateChange', async (oldS, newS) => {
+      if (newConnection.state.status === VoiceConnectionStatus.Disconnected) {
         try {
           await Promise.race([
-            entersState(connection, VoiceConnectionStatus.Signalling, DISCONNECTED_GRACE_MS),
-            entersState(connection, VoiceConnectionStatus.Connecting, DISCONNECTED_GRACE_MS),
+            entersState(newConnection, VoiceConnectionStatus.Signalling, DISCONNECTED_GRACE_MS),
+            entersState(newConnection, VoiceConnectionStatus.Connecting, DISCONNECTED_GRACE_MS),
           ]);
         } catch {
-          log.warn('Mất kết nối voice. Đang thử kết nối lại...');
-          attemptReconnect('stateChange');
+          if (connection === newConnection) {
+            log.warn('Mất kết nối voice. Đang thử kết nối lại...');
+            attemptReconnect('stateChange');
+          }
         }
-      } else if (newS.status === VoiceConnectionStatus.Destroyed) {
-        if (targetGuildId && targetChannelId && !permanentBlockReason) {
+      } else if (newConnection.state.status === VoiceConnectionStatus.Destroyed) {
+        if (targetGuildId && targetChannelId && !permanentBlockReason && connection === newConnection) {
           attemptReconnect('destroyed');
         }
-      } else if (newS.status === VoiceConnectionStatus.Ready) {
+      } else if (newConnection.state.status === VoiceConnectionStatus.Ready) {
         reconnectAttempts = 0;
         clearReconnect();
         lastReadyAt = Date.now();
       }
     });
 
-    connection.on('error', (e) => {
-      log.error('Lỗi kết nối voice:', e.message);
-      attemptReconnect('conn-error');
+    newConnection.on('error', (e) => {
+      if (connection === newConnection) {
+        log.error('Lỗi kết nối voice:', e.message);
+        attemptReconnect('conn-error');
+      }
     });
 
   } catch (e) {
     log.error(`Lỗi khi tham gia voice: ${e.message}`);
+
+    if (newConnection) {
+        try { newConnection.destroy(); } catch {}
+    }
+    connection = oldConnection;
+
     attemptReconnect('join-error');
   }
 }
 
 
-function leaveVC() {
+async function leaveVC() {
   stopReconnectPermanently('USER_COMMAND', 'Lệnh leave được gọi');
   if (connection) {
-    try {
-      connection.removeAllListeners();
-      connection.destroy();
-    } catch {}
-    connection = null;
+      await delayedLeave(10000);
   }
-  log.success('Đã rời voice channel');
+  log.success('Hoàn tất lệnh rời voice channel');
 }
 
 
@@ -324,11 +366,11 @@ async function commandLoop() {
       break;
     }
     case 'leave':
-      leaveVC();
+      await leaveVC();
       break;
     case 'exit':
       log.info('Đang thoát...');
-      cleanExit(0);
+      await cleanExit(0);
       return;
     default:
       log.warn('Lệnh không hợp lệ. Các lệnh có sẵn:', chalk.bold('join, leave, exit'));
@@ -337,21 +379,23 @@ async function commandLoop() {
 }
 
 
-function cleanExit(code = 0) {
+async function cleanExit(code = 0) {
   try { rl.close(); } catch {}
   clearReconnect();
   if (stickyTimer) { clearTimeout(stickyTimer); stickyTimer = null; }
+  
   if (connection) {
-      try { connection.removeAllListeners(); connection.destroy(); } catch {}
+      await delayedLeave(2000);
   }
+
   if (client) { try { client.destroy?.(); } catch {} }
   process.exit(code);
 }
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log();
   log.warn('Nhận tín hiệu SIGINT, đang thoát...');
-  cleanExit(0);
+  await cleanExit(0);
 });
 
 
@@ -381,10 +425,9 @@ function saveTokenToFile(token) {
 
 
 async function main() {
-  // Banner mới
   console.log(chalk.cyan('╭───────────────────────────────────────────────────╮'));
-  console.log(chalk.cyan('│') + chalk.bold.magenta('            Horimeki - Stay Voice Bot v3.6         ') + chalk.cyan('│'));
-  console.log(chalk.cyan('│') + chalk.white('               (Stable & Optimized)                ') + chalk.cyan('│'));
+  console.log(chalk.cyan('│') + chalk.bold.magenta('         Horimeki - Stay Voice Bot v3.7          ') + chalk.cyan('│'));
+  console.log(chalk.cyan('│') + chalk.white('              (Seamless Reconnect)                 ') + chalk.cyan('│'));
   console.log(chalk.cyan('╰───────────────────────────────────────────────────╯'));
 
 
