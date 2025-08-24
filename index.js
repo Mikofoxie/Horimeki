@@ -265,15 +265,8 @@ async function joinVC(guildId, channelId, isManualJoin = false) {
     await entersState(newConnection, VoiceConnectionStatus.Ready, READY_TIMEOUT_MS);
     
     log.success(`Kết nối thành công: ${chalk.bold(ch.name)}`, `(${channelId})`);
-    if (oldConnection && oldConnection !== newConnection) {
-        log.reconnect('Dọn dẹp kết nối cũ...');
-        try {
-            oldConnection.destroy();
-        } catch (e) {
-            log.warn('Lỗi nhỏ khi dọn dẹp kết nối cũ:', e.message);
-        }
-    }
-    
+
+  
     reconnectAttempts = 0;
     lastReadyAt = Date.now();
   
@@ -497,4 +490,4 @@ async function main() {
   }
 }
 
-main();
+main(); 
